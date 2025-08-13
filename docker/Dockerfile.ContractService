@@ -1,0 +1,35 @@
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS base
+WORKDIR /app
+EXPOSE 80
+EXPOSE 443
+
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /src
+
+COPY ["src/ContractService/ContractService.Domain/ContractService.Domain.csproj", "src/ContractService/ContractService.Domain/"]
+COPY ["src/ContractService/ContractService.Ports/ContractService.Ports.csproj", "src/ContractService/ContractService.Ports/"]
+COPY ["src/ContractService/ContractService.Core/ContractService.Core.csproj", "src/ContractService/ContractService.Core/"]
+COPY ["src/ContractService/ContractService.Infrastructure/ContractService.Infrastructure.csproj", "src/ContractService/ContractService.Infrastructure/"]
+COPY ["src/ContractService/ContractService.Adapters/ContractService.Adapters.csproj", "src/ContractService/ContractService.Adapters/"]
+COPY ["src/ContractService/ContractService.API/ContractService.API.csproj", "src/ContractService/ContractService.API/"]
+
+COPY ["src/Shared/InsuranceSystem.Shared/InsuranceSystem.Shared.csproj", "src/Shared/InsuranceSystem.Shared/"]
+
+RUN dotnet restore "src/ContractService/ContractService.API/ContractService.API.csproj"
+
+COPY . .
+
+WORKDIR "/src/src/ContractService/ContractService.API"
+RUN dotnet build "ContractService.API.csproj" -c Release -o /app/build
+
+FROM build AS publish
+RUN dotnet publish "ContractService.API.csproj" -c Release -o /app/publish /p:UseAppHost=false
+
+FROM base AS final
+WORKDIR /app
+COPY --from=publish /app/publish .
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost/health || exit 1
+
+ENTRYPOINT ["dotnet", "ContractService.API.dll"] 

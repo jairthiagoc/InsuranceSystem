@@ -52,3 +52,28 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+
+# Pasta de dependências
+/node_modules
+
+# Pasta de build
+/build
+/dist
+
+# Arquivos de configuração
+.vs/
+.idea/
+.vscode/
+package-lock.json
+
+# Arquivos de log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Arquivos de ambiente
+.env
+.env.local
+
+# Arquivos temporários
+.DS_Store
