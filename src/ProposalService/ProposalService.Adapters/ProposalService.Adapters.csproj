@@ -1,0 +1,21 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ProposalService.Domain\ProposalService.Domain.csproj" />
+    <ProjectReference Include="..\ProposalService.Ports\ProposalService.Ports.csproj" />
+    <ProjectReference Include="..\ProposalService.Infrastructure\ProposalService.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Shared\InsuranceSystem.Shared\InsuranceSystem.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Core" Version="2.2.5" />
+    <PackageReference Include="MassTransit" Version="8.3.4" />
+  </ItemGroup>
+
+</Project>

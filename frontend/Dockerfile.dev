@@ -1,0 +1,294 @@
+## 🐳 Dockerfile Frontend Atualizado
+
+### **Dockerfile (Multi-stage otimizado)**
+
+```dockerfile:frontend/Dockerfile
+# Build stage
+FROM node:20-alpine AS deps
+WORKDIR /app
+
+# Copiar arquivos de dependências
+COPY package*.json ./
+COPY yarn.lock* ./
+COPY pnpm-lock.yaml* ./
+
+# Instalar dependências com cache otimizado
+RUN npm ci --only=production --frozen-lockfile || \
+    yarn install --frozen-lockfile --production || \
+    pnpm install --frozen-lockfile --prod || \
+    npm install --only=production
+
+# Build stage
+FROM node:20-alpine AS builder
+WORKDIR /app
+
+# Copiar dependências do stage anterior
+COPY --from=deps /app/node_modules ./node_modules
+COPY package*.json ./
+
+# Copiar código fonte
+COPY . .
+
+# Build da aplicação
+RUN npm run build
+
+# Production stage
+FROM nginx:1.25-alpine AS production
+
+# Instalar curl para health checks
+RUN apk add --no-cache curl
+
+# Copiar build da aplicação
+COPY --from=builder /app/build /usr/share/nginx/html
+
+# Copiar configuração do nginx
+COPY nginx.conf /etc/nginx/nginx.conf
+
+# Criar usuário não-root
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nextjs -u 1001
+
+# Definir permissões
+RUN chown -R nextjs:nodejs /usr/share/nginx/html && \
+    chown -R nextjs:nodejs /var/cache/nginx && \
+    chown -R nextjs:nodejs /var/log/nginx && \
+    chown -R nextjs:nodejs /etc/nginx/conf.d
+
+# Mudar para usuário não-root
+USER nextjs
+
+# Expor porta
+EXPOSE 80
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost/health || exit 1
+
+# Iniciar nginx
+CMD ["nginx", "-g", "daemon off;"]
+```
+
+### **Dockerfile.Development (Para desenvolvimento)**
+
+```dockerfile:frontend/Dockerfile.dev
+FROM node:20-alpine AS development
+
+WORKDIR /app
+
+# Copiar arquivos de dependências
+COPY package*.json ./
+COPY yarn.lock* ./
+COPY pnpm-lock.yaml* ./
+
+# Instalar todas as dependências (incluindo devDependencies)
+RUN npm ci --frozen-lockfile || \
+    yarn install --frozen-lockfile || \
+    pnpm install --frozen-lockfile || \
+    npm install
+
+# Copiar código fonte
+COPY . .
+
+# Expor porta
+EXPOSE 3000
+
+# Health check para desenvolvimento
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:3000 || exit 1
+
+# Comando para desenvolvimento
+CMD ["npm", "start"]
+```
+
+### **nginx.conf (Atualizado)**
+
+```nginx:frontend/nginx.conf
+events {
+    worker_connections 1024;
+    use epoll;
+    multi_accept on;
+}
+
+http {
+    include       /etc/nginx/mime.types;
+    default_type  application/octet-stream;
+
+    # Logging otimizado
+    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                    '$status $body_bytes_sent "$http_referer" '
+                    '"$http_user_agent" "$http_x_forwarded_for" '
+                    'rt=$request_time uct="$upstream_connect_time" '
+                    'uht="$upstream_header_time" urt="$upstream_response_time"';
+
+    access_log /var/log/nginx/access.log main;
+    error_log /var/log/nginx/error.log warn;
+
+    # Configurações de performance
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout 65;
+    types_hash_max_size 2048;
+    client_max_body_size 16M;
+
+    # Gzip compression otimizado
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_types
+        text/plain
+        text/css
+        text/xml
+        text/javascript
+        application/json
+        application/javascript
+        application/xml+rss
+        application/atom+xml
+        image/svg+xml
+        application/x-font-ttf
+        font/opentype;
+
+    # Rate limiting
+    limit_req_zone $binary_remote_addr zone=api:10m rate=10r/s;
+    limit_req_zone $binary_remote_addr zone=login:10m rate=1r/s;
+
+    server {
+        listen 80;
+        server_name localhost;
+        root /usr/share/nginx/html;
+        index index.html;
+
+        # Security headers atualizados
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header X-XSS-Protection "1; mode=block" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' ws: wss:;" always;
+        add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+
+        # Handle React Router com fallback
+        location / {
+            try_files $uri $uri/ /index.html;
+            add_header Cache-Control "no-cache, no-store, must-revalidate";
+        }
+
+        # Cache otimizado para assets estáticos
+        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+            expires 1y;
+            add_header Cache-Control "public, immutable";
+            add_header Vary Accept-Encoding;
+        }
+
+        # API proxy com rate limiting
+        location /api/ {
+            limit_req zone=api burst=20 nodelay;
+            proxy_pass http://proposalservice:8080;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_connect_timeout 30s;
+            proxy_send_timeout 30s;
+            proxy_read_timeout 30s;
+        }
+
+        # Contract API proxy
+        location /contract-api/ {
+            limit_req zone=api burst=20 nodelay;
+            proxy_pass http://contractservice:8080/;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_connect_timeout 30s;
+            proxy_send_timeout 30s;
+            proxy_read_timeout 30s;
+        }
+
+        # Health check
+        location /health {
+            access_log off;
+            return 200 "healthy\n";
+            add_header Content-Type text/plain;
+        }
+
+        # Status page
+        location /status {
+            access_log off;
+            stub_status on;
+        }
+
+        # Error pages
+        error_page 404 /index.html;
+        error_page 500 502 503 504 /50x.html;
+        
+        location = /50x.html {
+            root /usr/share/nginx/html;
+        }
+    }
+}
+```
+
+### **docker-compose.yml (Atualizado para frontend)**
+
+```yaml:docker-compose.yml
+# ... existing code ...
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: production
+    ports:
+      - "3000:80"
+    environment:
+      - REACT_APP_API_URL=http://localhost:7001
+      - REACT_APP_CONTRACT_API_URL=http://localhost:7002
+      - REACT_APP_WS_URL=http://localhost:7001
+      - NODE_ENV=production
+    depends_on:
+      proposalservice:
+        condition: service_started
+      contractservice:
+        condition: service_started
+    networks:
+      - insurance-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+# ... existing code ...
+```
+
+## 🚀 Comandos para Atualizar
+
+```bash
+# Rebuild do frontend
+docker-compose build --no-cache frontend
+
+# Ou rebuild completo
+docker-compose down
+docker-compose build --no-cache
+docker-compose up -d
+```
+
+## ✨ Melhorias Implementadas
+
+1. **Node.js 20** - Versão LTS mais recente
+2. **Multi-stage build** - Otimização de tamanho e segurança
+3. **Usuário não-root** - Segurança aprimorada
+4. **Health checks** - Monitoramento automático
+5. **Cache otimizado** - Melhor performance
+6. **Rate limiting** - Proteção contra ataques
+7. **Security headers** - Headers de segurança atualizados
+8. **Gzip otimizado** - Compressão melhorada
+9. **Proxy configurado** - Para APIs de proposta e contrato
+10. **Error handling** - Páginas de erro personalizadas
+
+O frontend agora está atualizado com as melhores práticas atuais! 

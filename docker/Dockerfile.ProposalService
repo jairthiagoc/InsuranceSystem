@@ -1,0 +1,35 @@
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS base
+WORKDIR /app
+EXPOSE 80
+EXPOSE 443
+
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /src
+
+COPY ["src/ProposalService/ProposalService.Domain/ProposalService.Domain.csproj", "src/ProposalService/ProposalService.Domain/"]
+COPY ["src/ProposalService/ProposalService.Ports/ProposalService.Ports.csproj", "src/ProposalService/ProposalService.Ports/"]
+COPY ["src/ProposalService/ProposalService.Core/ProposalService.Core.csproj", "src/ProposalService/ProposalService.Core/"]
+COPY ["src/ProposalService/ProposalService.Infrastructure/ProposalService.Infrastructure.csproj", "src/ProposalService/ProposalService.Infrastructure/"]
+COPY ["src/ProposalService/ProposalService.Adapters/ProposalService.Adapters.csproj", "src/ProposalService/ProposalService.Adapters/"]
+COPY ["src/ProposalService/ProposalService.API/ProposalService.API.csproj", "src/ProposalService/ProposalService.API/"]
+
+COPY ["src/Shared/InsuranceSystem.Shared/InsuranceSystem.Shared.csproj", "src/Shared/InsuranceSystem.Shared/"]
+
+RUN dotnet restore "src/ProposalService/ProposalService.API/ProposalService.API.csproj"
+
+COPY . .
+
+WORKDIR "/src/src/ProposalService/ProposalService.API"
+RUN dotnet build "ProposalService.API.csproj" -c Release -o /app/build
+
+FROM build AS publish
+RUN dotnet publish "ProposalService.API.csproj" -c Release -o /app/publish /p:UseAppHost=false
+
+FROM base AS final
+WORKDIR /app
+COPY --from=publish /app/publish .
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost/health || exit 1
+
+ENTRYPOINT ["dotnet", "ProposalService.API.dll"] 

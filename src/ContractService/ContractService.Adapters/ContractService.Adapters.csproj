@@ -1,0 +1,20 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ContractService.Domain\ContractService.Domain.csproj" />
+    <ProjectReference Include="..\ContractService.Ports\ContractService.Ports.csproj" />
+    <ProjectReference Include="..\ContractService.Infrastructure\ContractService.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Shared\InsuranceSystem.Shared\InsuranceSystem.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Core" Version="2.2.5" />
+  </ItemGroup>
+
+</Project>
